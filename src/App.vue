@@ -1,23 +1,37 @@
 <template>
-  <div id="app">
-    <img alt="Vue logo" src="./assets/logo.png">
-    <HelloWorld msg="Welcome to Your Vue.js App"/>
-  </div>
+  <div id="app"></div>
 </template>
 
 <script>
-import HelloWorld from './components/HelloWorld.vue'
-
+import ws from "./ws";
+import { Feed } from "./Feed";
 export default {
-  name: 'App',
-  components: {
-    HelloWorld
-  }
-}
+  name: "App",
+  components: {},
+  mounted() {
+    new TradingView.widget({
+      container_id: "app",
+      locale: "zh",
+      datafeed: new Feed("https://demo_feed.tradingview.com/"),
+      fullscreen: true,
+      overrides: {},
+      disabled_features: ["header_symbol_search"],
+    });
+  },
+};
 </script>
 
 <style>
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
 #app {
+  width: 100%;
+  height: 100%;
   font-family: Avenir, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
