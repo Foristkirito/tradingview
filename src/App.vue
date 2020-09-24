@@ -15,7 +15,8 @@ export default {
       datafeed: new Feed("https://demo_feed.tradingview.com/"),
       fullscreen: true,
       overrides: {},
-      disabled_features: ["header_symbol_search"],
+      interval: 1,
+      // disabled_features: ["header_symbol_search"],
     });
   },
 };
@@ -37,6 +38,5 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-align: center;
   color: #2c3e50;
-  margin-top: 60px;
 }
 </style>

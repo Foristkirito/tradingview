@@ -1,72 +1,8 @@
 import globalWs from "./ws";
 // 处理二进制流
-const onWsMessage = (params) => {
-  const { data, callback } = params;
 
-  const initFileReader = function() {
-    const reader = new FileReader();
-    reader.onloadend = (e) => {
-      const text = e.srcElement.result;
-      callback(text);
-    };
-    return reader;
-  };
+let handleGetBarsMessage = null;
 
-  const reader = initFileReader();
-
-  if (reader) {
-    reader.readAsText(data);
-  }
-};
-
-// 处理websocket返回的数据
-const dealWebsocket = (params) => {
-  let { data, resolutionTime, callback } = params;
-
-  data = JSON.parse(data);
-  let dataString = "";
-  let dataJSON = "";
-  const wsLocalStorage = "wsTradeViewDataHistory";
-
-  console.log(data.type);
-  switch (data.type) {
-    // k线历史图
-    case "kline":
-      dataString = JSON.stringify(data.data.kLine);
-      break;
-    // 实时获取推送
-    case "dealSuccess":
-      dataString = localStorage.getItem(wsLocalStorage);
-      dataJSON = JSON.parse(dataString);
-      const lastDataLength = dataJSON.t.length - 1;
-      const newData = data.data.kLine;
-      const lastDataTime = dataJSON.t[lastDataLength];
-      const newDataTime = parseInt(newData.t);
-
-      // 判断当前时间 + 时间间隔 和 最新时间的大小
-      if (lastDataTime + resolutionTime > newDataTime) {
-        // 替换最后一个
-        for (const key in dataJSON) {
-          if (key !== "s" && key !== "t" && newData[key]) {
-            dataJSON[key][lastDataLength] = newData[key];
-          }
-        }
-      } else {
-        for (const key in dataJSON) {
-          if (key !== "s" && newData[key]) {
-            dataJSON[key].push(newData[key]);
-          }
-        }
-      }
-      dataString = JSON.stringify(dataJSON);
-      break;
-    default:
-      break;
-  }
-
-  localStorage.setItem(wsLocalStorage, dataString);
-  callback(dataString);
-};
 // 处理时间
 const filteringTime = (time) => {
   const minuteTime = 60;
@@ -109,8 +45,24 @@ const transformTime = (time) => {
 // 处理websocket二进制数据
 const handleBuffer = (buffer, onHistoryCallback) => {};
 // 处理websocket json数据
-const handleJson = (data, onHistoryCallback) => {
-  console.log(data);
+const handleJson = (e, onHistoryCallback) => {
+  let data = JSON.parse(e);
+  if (data.type === "kline") {
+    let klineData = data.data.kLine;
+    let bars = [];
+    for (let i = 0, length = klineData.c.length; i < length; i++) {
+      let obj = {};
+      obj.high = klineData.h[i];
+      obj.open = klineData.o[i];
+      obj.low = klineData.l[i];
+      obj.close = klineData.c[i];
+      obj.volumn = klineData.v[i];
+      obj.time = klineData.t[i] * 1000;
+      bars.push(obj);
+    }
+    console.log("ws message---", bars);
+    onHistoryCallback(bars);
+  }
 };
 
 export class Feed {
@@ -147,9 +99,10 @@ export class Feed {
     };
   }
   async onReady(callback) {
+    console.log("onready");
     let response = await fetch(this.url + "/config");
     let json = await response.json();
-    (json.supported_resolutions = [
+    json.supported_resolutions = [
       "1",
       "5",
       "15",
@@ -162,8 +115,9 @@ export class Feed {
       "1D",
       "1W",
       "1M",
-    ]),
-      callback(json);
+    ];
+    console.log("set json");
+    callback(json);
   }
   getBars(
     symbolInfo,
@@ -174,10 +128,23 @@ export class Feed {
     onErrorCallback,
     firstDataRequest
   ) {
+    console.log("getbars -----", resolution);
     from *= 1000;
     to *= 1000;
     const resolutionTime = filteringTime(resolution);
     const period = transformTime(resolution);
+    // getBars websoket事件处理函数，单独提取出来，防止跟其他的onmessage冲突
+    // 放在该函数内部，是为了使用onHistoryCallback
+    // getBars会多次调用，需要先移除监听
+    handleGetBarsMessage &&
+      globalWs.removeEventListener("message", handleGetBarsMessage);
+    handleGetBarsMessage = (msg) => {
+      if (typeof msg.data === "object") {
+        handleBuffer(msg.data, onHistoryCallback);
+      } else {
+        handleJson(msg.data, onHistoryCallback);
+      }
+    };
     //   使用websocket传输数据
     const wesocketGetData = () => {
       const soketParams = {
@@ -193,17 +160,6 @@ export class Feed {
         globalWs.send(JSON.stringify(soketParams));
         window.isSendws = true;
       }
-      // getBars websoket事件处理函数，单独提取出来，防止跟其他的onmessage冲突
-      // 放在该函数内部，是为了使用onHistoryCallback
-      const handleGetBarsMessage = (msg) => {
-        if (typeof msg.data === "object") {
-          handleBuffer(msg.data, onHistoryCallback);
-        } else {
-          handleJson(msg.data, onHistoryCallback);
-        }
-      };
-      // getBars会多次调用，需要先移除监听
-      globalWs.removeEventListener("message", handleGetBarsMessage);
       globalWs.addEventListener("message", handleGetBarsMessage);
     };
     //   使用http传输数据
@@ -235,6 +191,7 @@ export class Feed {
   }
   //   用户搜索商品触发
   async searchSymbols(userInput, exchange, symbolType, onResultReadyCallback) {
+    console.log("search symbol", exchange, symbolType);
     let response = await fetch(
       this.url + `search?query=${userInput}&type=stock&exchange=NYSE&limit=15`
     );
@@ -247,6 +204,7 @@ export class Feed {
     onSymbolResolvedCallback,
     onResolveErrorCallback
   ) {
+    console.log("resolve symbol", symbolName);
     let response = await fetch(this.url + `/symbols?symbol=${symbolName}`);
     let json = await response.json();
     onSymbolResolvedCallback({
@@ -254,12 +212,12 @@ export class Feed {
       ticker: json.ticker,
       description: json.description,
       type: json.type,
-      session: json.session,
+      session: "24x7",
       holidays: [],
       corrections: [],
       timezone: json.timezone,
-      "exchange-traded": json["exchange-traded"],
-      "exchange-listed": json["exchange-listed"],
+      // "exchange-traded": json["exchange-traded"],
+      // "exchange-listed": json["exchange-listed"],
       minmov: json.minmov,
       minmov2: json.minmov2,
       pointvalue: json.pointvalue,

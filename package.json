@@ -2,6 +2,7 @@
   "name": "vue-trading",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://lsc960517548.github.io/tradingview",
   "scripts": {
     "dev": "vue-cli-service serve",
     "build": "vue-cli-service build"
