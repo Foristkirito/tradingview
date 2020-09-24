@@ -1,5 +1,8 @@
 <template>
-  <div id="app"></div>
+  <div>
+    <h1>tradingview-vue</h1>
+    <div id="app"></div>
+  </div>
 </template>
 
 <script>
