@@ -50,18 +50,8 @@ jobs:
       - name: Stash
         run: |
           sudo mv nexus-${{ env.service }}-${{ env.version }}.zip /tmp/
-
-      - name: Checkout configuration
-        uses: actions/checkout@v2
-        with:
-          repository: bitcove-vip/config
-          ref: master
-          token: ${{ secrets.PRI_TOKEN }}
-
       - name: Append config
         run: |
-          mv ${{ env.service }}/application-${{ env.target }}.yml ./application.yml
-          sudo zip -ur -j /tmp/nexus-${{ env.service }}-${{ env.version }}.zip application.yml
           sudo mkdir upload
           sudo mv /tmp/nexus-${{ env.service }}-${{ env.version }}.zip upload/
           sudo cp upload/nexus-${{ env.service }}-${{ env.version }}.zip upload/nexus-${{ env.service }}-${{ env.target }}-latest.zip
