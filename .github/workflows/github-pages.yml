@@ -43,8 +43,10 @@ jobs:
       - name: Zip Bundle
         uses: montudor/action-zip@v0.1.0
         with:
-          args: zip -r -j nexus-${{ env.service }}-${{ env.version }}.zip appspec.yml scripts/ nexus-broker-app/target/nexus-${{ env.service }}.zip
-
+          args: zip -qq nexus-${{ env.service }}-${{ env.version }}.zip ./dist
+      - name: Echo dir
+        run: |
+          ls -al
       - name: Stash
         run: |
           sudo mv nexus-${{ env.service }}-${{ env.version }}.zip /tmp/
