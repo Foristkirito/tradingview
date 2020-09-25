@@ -1,67 +1,77 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+name: Node.js CI
+
 on:
   push:
-    branches:
-      - master
-env:
-  NODE_VERSION: "12.18.4"
-
-name: Deploy Static Website to Amazon
+    tags:
+      - prd-*
+      - test-*
+      - sandbox-*
 
 jobs:
   build-and-deploy:
     name: Build And Deploy
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [10.x, 12.x, 14.x]
+    env:
+      tag: ${{ github.ref }}
     steps:
+      - name: Set environment variables
+        run: |
+          echo ::set-env name=version::${tag##*/}
+          echo ::set-env name=target::$(echo ${tag##*/} | cut -d '-' -f1)
+          echo ::set-env name=service::web
+
       - name: Checkout
         uses: actions/checkout@master
+        with:
+          ref: ${{ github.ref }}
 
       - name: Use Node.js
         uses: actions/setup-node@v1
         with:
-          node-version: ${{env.NODE_VERSION}}
+          node-version: ${{ matrix.node-version }}
 
       - name: Build
         run: |
           npm install
           npm run build
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+      - name: Zip Bundle
+        uses: montudor/action-zip@v0.1.0
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+          args: zip -r -j nexus-${{ env.service }}-${{ env.version }}.zip appspec.yml scripts/ nexus-broker-app/target/nexus-${{ env.service }}.zip
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: my-ecr-repo
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Stash
         run: |
-          # Build a docker container and
-          # push it to ECR so that it can
-          # be deployed to ECS.
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          sudo mv nexus-${{ env.service }}-${{ env.version }}.zip /tmp/
 
-      - name: Fill in the new image ID in the Amazon ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
+      - name: Checkout configuration
+        uses: actions/checkout@v2
         with:
-          task-definition: task-definition.json
-          container-name: sample-app
-          image: ${{ steps.build-image.outputs.image }}
+          repository: bitcove-vip/config
+          ref: master
+          token: ${{ secrets.PRI_TOKEN }}
 
-      - name: Deploy Amazon ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: sample-app-service
-          cluster: default
-          wait-for-service-stability: true
+      - name: Append config
+        run: |
+          mv ${{ env.service }}/application-${{ env.target }}.yml ./application.yml
+          sudo zip -ur -j /tmp/nexus-${{ env.service }}-${{ env.version }}.zip application.yml
+          sudo mkdir upload
+          sudo mv /tmp/nexus-${{ env.service }}-${{ env.version }}.zip upload/
+          sudo cp upload/nexus-${{ env.service }}-${{ env.version }}.zip upload/nexus-${{ env.service }}-${{ env.target }}-latest.zip
+          u=$USER
+          sudo chown -R $u upload
+          sudo chmod o+r upload
+
+      - name: Deploy to S3
+        uses: jakejarvis/s3-sync-action@master
+        env:
+          AWS_S3_BUCKET: "codedeploy-package"
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+          AWS_REGION: "ap-northeast-1"
+          SOURCE_DIR: "upload"

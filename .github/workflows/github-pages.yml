@@ -1,23 +1,77 @@
-name: GitHub Actions Build and Deploy Demo
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+name: Node.js CI
+
 on:
   push:
     tags:
-      - v*
+      - prd-*
+      - test-*
+      - sandbox-*
+
 jobs:
   build-and-deploy:
+    name: Build And Deploy
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [10.x, 12.x, 14.x]
+    env:
+      tag: ${{ github.ref }}
     steps:
+      - name: Set environment variables
+        run: |
+          echo ::set-env name=version::${tag##*/}
+          echo ::set-env name=target::$(echo ${tag##*/} | cut -d '-' -f1)
+          echo ::set-env name=service::web
+
       - name: Checkout
-        uses: actions/checkout@master # If you're using actions/checkout@v2 you must set persist-credentials to false in most cases for the deployment to work correctly.
+        uses: actions/checkout@master
         with:
-          persist-credentials: false
-      - name: Install and Build
+          ref: ${{ github.ref }}
+
+      - name: Use Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Build
         run: |
           npm install
           npm run build
-      - name: Deploy
-        uses: JamesIves/github-pages-deploy-action@releases/v3
+
+      - name: Zip Bundle
+        uses: montudor/action-zip@v0.1.0
         with:
-          ACCESS_TOKEN: ${{ secrets.PAGES }}
-          BRANCH: gh-pages
-          FOLDER: dist
+          args: zip -r -j nexus-${{ env.service }}-${{ env.version }}.zip appspec.yml scripts/ nexus-broker-app/target/nexus-${{ env.service }}.zip
+
+      - name: Stash
+        run: |
+          sudo mv nexus-${{ env.service }}-${{ env.version }}.zip /tmp/
+
+      - name: Checkout configuration
+        uses: actions/checkout@v2
+        with:
+          repository: bitcove-vip/config
+          ref: master
+          token: ${{ secrets.PRI_TOKEN }}
+
+      - name: Append config
+        run: |
+          mv ${{ env.service }}/application-${{ env.target }}.yml ./application.yml
+          sudo zip -ur -j /tmp/nexus-${{ env.service }}-${{ env.version }}.zip application.yml
+          sudo mkdir upload
+          sudo mv /tmp/nexus-${{ env.service }}-${{ env.version }}.zip upload/
+          sudo cp upload/nexus-${{ env.service }}-${{ env.version }}.zip upload/nexus-${{ env.service }}-${{ env.target }}-latest.zip
+          u=$USER
+          sudo chown -R $u upload
+          sudo chmod o+r upload
+
+      - name: Deploy to S3
+        uses: jakejarvis/s3-sync-action@master
+        env:
+          AWS_S3_BUCKET: "codedeploy-package"
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+          AWS_REGION: "ap-northeast-1"
+          SOURCE_DIR: "upload"
