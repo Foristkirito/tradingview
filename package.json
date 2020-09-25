@@ -5,7 +5,7 @@
   "homepage": "https://lsc960517548.github.io/tradingview",
   "scripts": {
     "dev": "vue-cli-service serve",
-    "build": "vue-cli-service build"
+    "build": "vue-cli-service build && node test.js"
   },
   "dependencies": {
     "core-js": "^3.6.5",
